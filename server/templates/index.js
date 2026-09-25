@@ -570,17 +570,24 @@ registerTemplate({
       ? `Interview moved — ${data.fullName} — ${data.interviewerDay} at ${data.interviewerTime}`
       : `New interview — ${data.fullName} — ${data.interviewerDay} at ${data.interviewerTime}`,
     ...bodyBoth({
-      heading: 'New interview in your diary',
+      heading: data.guest ? 'An interview you are invited to' : 'New interview in your diary',
       preview: `${data.fullName} - ${data.interviewerDay} at ${data.interviewerTime}.`,
       signOff: SIGN_OFF,
       lines: [
-      `Hi ${data.interviewerFirstName || 'there'},`,
+      `Hi ${(data.guest ? '' : data.interviewerFirstName) || 'there'},`,
       '',
-      data.moved
-        ? `${data.fullName} has moved their interview.`
-        : `${data.fullName} has booked an interview with you.`,
+      // Two readers, one email. The interviewer's copy is what it always was;
+      // `guest` is a person this role puts on its invites (Sales), for whom
+      // the interview is neither "in your diary" nor booked "with you".
+      data.guest
+        ? data.moved
+          ? `${data.fullName} has moved their interview with ${data.interviewerName}. You are invited to it.`
+          : `${data.fullName} has booked an interview with ${data.interviewerName}. You are invited to it.`
+        : data.moved
+          ? `${data.fullName} has moved their interview.`
+          : `${data.fullName} has booked an interview with you.`,
       '',
-      `When:      ${data.interviewerDay} at ${data.interviewerTime} (your time)`,
+      `When:      ${data.interviewerDay} at ${data.interviewerTime} (${data.guest ? "the interviewer's time" : 'your time'})`,
       `           ${data.ukTime} UK time — ${data.localTime} for the candidate`,
       `Candidate: ${data.fullName} <${data.email}>`,
       `Role:      ${data.roleTitle}`,
