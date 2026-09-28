@@ -1,5 +1,7 @@
 import { enqueue, cancelPendingFor } from './outbox.js';
 import { dedupeKey } from './outboxPolicy.js';
+import { extendedRole } from './extendedRoles.js';
+import { extraGuests } from './googleCalendar.js';
 
 /**
  * Which email each event sends.
@@ -131,6 +133,22 @@ export async function notifyBooked(client, { applicant, interviewId, startsAt, i
  * being told is a worse outcome than nothing, but a candidate unable to book
  * at all is worse still.
  */
+/**
+ * The people a role puts on its interviews' Meet invites (sales/role.js ->
+ * RECRUIT_GOOGLE_SALES_EXTRA_GUESTS). Empty for every other role.
+ *
+ * They are on the Google event, which is what lets them join without
+ * knocking -- but the portal tells Google to send no invitations at all
+ * (`sendUpdates: 'none'`, so a candidate hears about their interview once,
+ * from us). Nobody was therefore telling these guests anything: no email when
+ * a candidate books, none when they move it, and an event their calendar may
+ * never show them. So they get the interviewer's email too.
+ */
+const roleGuestsFor = (role) => {
+  const key = extendedRole(role)?.calendar?.extraGuestsEnv;
+  return key ? extraGuests(process.env, key) : [];
+};
+
 async function notifyInterviewer(client, { applicant, interviewId, when, moved }) {
   const { rows } = await client.query(
     `SELECT iv.email
@@ -156,6 +174,24 @@ async function notifyInterviewer(client, { applicant, interviewId, when, moved }
     vars: { moved },
     dedupeKey: dedupeKey(moved ? 'iv-moved' : 'iv-booked', interviewId, when),
   });
+
+  /*
+   * The same two facts, and the same calendar file, to this role's guests.
+   * `guest` changes the wording: it is not their diary the interview is in,
+   * and nobody booked it "with them". One row each, keyed per address, so a
+   * second guest added later does not rob the first of their email.
+   */
+  for (const guest of roleGuestsFor(applicant.role)) {
+    if (guest === String(to).toLowerCase()) continue;
+    await enqueue(client, {
+      template: 'recruit.interviewer.booked',
+      toEmail: guest,
+      applicantId: applicant.id,
+      interviewId,
+      vars: { moved, guest: true },
+      dedupeKey: dedupeKey(moved ? 'guest-moved' : 'guest-booked', interviewId, guest, when),
+    });
+  }
 
   /*
    * The same two facts, in the Mattermost interview channel.
