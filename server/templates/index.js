@@ -423,7 +423,7 @@ registerTemplate({
   when: 'Posted to the interview channel when a candidate books, and again if they move it.',
   description:
     'Goes to the Mattermost interview channel, not to anybody by email. Carries no score, no AI verdict and no CV — the dashboard holds those behind a login.',
-  mergeFields: ['fullName', 'roleTitle', 'interviewerDay', 'interviewerTime', 'ukTime'],
+  mergeFields: ['fullName', 'roleTitle', 'interviewerDay', 'interviewerTime', 'ukTime', 'chatInterviewer'],
   sample: SAMPLE,
   load,
   render: (data) => ({
@@ -431,7 +431,7 @@ registerTemplate({
     text: [
       `**Interview booked — ${data.fullName}**`,
       `${data.roleTitle} · ${chatWhen(data)}`,
-      `Interviewer: ${data.interviewerName}`,
+      `Interviewer: ${data.chatInterviewer || data.interviewerName}`,
     ].join('\n'),
   }),
 });

@@ -1,5 +1,6 @@
 import { ROLE_BY_API_KEY } from '../lib/roles.js';
 import { extendedRole } from '../lib/extendedRoles.js';
+import { extraGuests } from '../lib/googleCalendar.js';
 import { formatDayIn, formatTimeIn } from '../lib/zonedTime.js';
 import { declineReapply, declineSentence } from '../../shared/declineReasons.js';
 
@@ -54,6 +55,12 @@ const firstNameOf = (full) => (full ?? '').trim().split(/\s+/)[0] ?? '';
 export const publicBaseUrl = () =>
   (process.env.PUBLIC_BASE_URL || 'http://localhost:5173').replace(/\/+$/, '');
 
+/** The first address a role adds to its own interviews, or null. */
+function salesChatInterviewer(apiKey) {
+  const key = extendedRole(apiKey)?.calendar?.extraGuestsEnv;
+  return (key ? extraGuests(process.env, key)[0] : null) ?? null;
+}
+
 export async function loadContext(row, db) {
   const { rows } = await db.query(ONE, [row.applicant_id, row.interview_id]);
   const record = rows[0];
@@ -77,6 +84,13 @@ export async function loadContext(row, db) {
     roleSlug: role?.slug ?? '',
 
     interviewerName: record.interviewer_name ?? 'a member of our team',
+    // Who the Mattermost post names as the interviewer. A role that puts its
+    // own people on its interviews (Sales, via the same .env list as the Meet
+    // invite) names the first of them there instead: for that role they are
+    // the person taking the interview, and the channel should say so. Every
+    // other role names the interviewer, exactly as before.
+    chatInterviewer:
+      salesChatInterviewer(record.role) ?? record.interviewer_name ?? 'a member of our team',
     interviewerFirstName: firstNameOf(record.interviewer_name),
     interviewerEmail: record.interviewer_email ?? null,
     interviewerTimezone: record.interviewer_tz || UK,
