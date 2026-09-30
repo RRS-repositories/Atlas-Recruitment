@@ -1,4 +1,5 @@
 import { pool } from './db.js';
+import { RULES_FOR_INTERVIEWER, pickRule } from './roleRules.js';
 import {
   addDays,
   formatTimeIn,
@@ -167,11 +168,16 @@ export function minutesOfDay(startsAt, endsAt, zone) {
  * the interviewer's own timezone, so the week shown is the week they work.
  */
 export async function buildCalendar({ interviewerId, from, to, now = new Date() }) {
-  const { rows: ruleRows } = await pool.query(
-    'SELECT * FROM recruit_availability_rules WHERE interviewer_id = $1',
-    [interviewerId],
-  );
-  const rule = ruleRows[0];
+  /*
+   * The DEFAULT rule, deliberately -- not whichever row the database returns
+   * first. Since recruit_018 an interviewer can also have hours per role, and
+   * this one grid cannot be four sets of hours at once: it draws the default
+   * day, and an interview outside it still appears, because `gridBounds`
+   * stretches for every interview and `rowState` calls a booked row booked
+   * before it asks about the hours.
+   */
+  const { rows: ruleRows } = await pool.query(RULES_FOR_INTERVIEWER, [interviewerId]);
+  const rule = pickRule(ruleRows, null);
   if (!rule) return null;
 
   const zone = rule.timezone;
