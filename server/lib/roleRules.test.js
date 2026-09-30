@@ -9,11 +9,14 @@ import { buildAvailability, isSlotBookable } from './availability.js';
 /**
  * Booking hours per role (recruit_018).
  *
- * The India roles are interviewed 11:30-13:30 India time; every other role
- * keeps the hours the single rule has always carried. What matters is that a
- * role WITHOUT its own hours is indistinguishable from before, and that the
- * India hours are 11:30 in India whatever the UK clock is doing -- which is
- * why that rule carries its own timezone rather than a converted UK time.
+ * The India roles are interviewed 07:00-09:00 UK; every other role keeps the
+ * hours the single rule has always carried. The hours are in UK time like
+ * every other hour on the Settings screen, so the UK clock is the fixed one
+ * and the candidate's own time moves with it: 11:30-13:30 in India on summer
+ * time, 12:30-14:30 once the clocks go back.
+ *
+ * What matters most is that a role WITHOUT its own hours is indistinguishable
+ * from before.
  */
 
 const DEFAULT_RULE = {
@@ -35,10 +38,10 @@ const INDIA_RULE = {
   ...DEFAULT_RULE,
   id: 2,
   rule_role: 'india_intern',
-  timezone: 'Asia/Kolkata',
-  day_start: '11:30:00',
-  day_end: '13:30:00',
-  blocks: [],
+  // UK time, like the default. The lunch travels with it and does nothing
+  // here: 12:30 is long past a 09:00 finish.
+  day_start: '07:00:00',
+  day_end: '09:00:00',
 };
 
 const AIDEV_RULE = { ...INDIA_RULE, id: 3, rule_role: 'india_aidev' };
@@ -82,27 +85,32 @@ test('the query asks for every rule of one interviewer, and narrows by nothing e
 const DAYS = (rule, tz) =>
   buildAvailability({ rule, taken: [], candidateTimezone: tz, now: new Date('2026-10-01T06:00:00Z') });
 
-test('an India candidate is offered 11:30-13:30 in their own time', () => {
+test('an India candidate is offered the 07:00-09:00 UK window, in their own time', () => {
   const days = DAYS(INDIA_RULE, 'Asia/Kolkata').filter((d) => d.slots.length);
   assert.ok(days.length > 0, 'there are days to book');
-  const times = [...new Set(days.flatMap((d) => d.slots.map((s) => s.localLabel ?? s.label ?? s.localTime)))];
   for (const day of days) {
+    // 07:00 UK on summer time is 11:30 in India.
     assert.equal(day.slots[0].localTime ?? day.slots[0].label, '11:30', 'first slot');
     const last = day.slots.at(-1);
-    assert.equal(last.localTime ?? last.label, '13:10', 'last slot starts 20 minutes before 13:30');
+    assert.equal(last.localTime ?? last.label, '13:10', 'last slot starts 20 minutes before the finish');
     assert.equal(day.slots.length, 6, 'six 20-minute slots in two hours');
   }
-  assert.ok(times.every((t) => t >= '11:30' && t <= '13:30'), 'nothing outside the window');
 });
 
-test('those hours hold on both sides of the UK clock change', () => {
-  // British Summer Time ends on 25 October 2026. The India day must not move.
-  for (const now of ['2026-10-01T06:00:00Z', '2026-11-05T06:00:00Z']) {
+test('the UK clock is the fixed one, so the candidate’s time moves with it', () => {
+  // British Summer Time ends on 25 October 2026.
+  const first = (now, zone) => {
     const days = buildAvailability({
-      rule: INDIA_RULE, taken: [], candidateTimezone: 'Asia/Kolkata', now: new Date(now),
+      rule: INDIA_RULE, taken: [], candidateTimezone: zone, now: new Date(now),
     }).filter((d) => d.slots.length);
-    assert.equal(days[0].slots[0].localTime ?? days[0].slots[0].label, '11:30', now);
-  }
+    return days[0].slots[0].localTime ?? days[0].slots[0].label;
+  };
+  // In UK time the day does not move.
+  assert.equal(first('2026-10-01T06:00:00Z', 'Europe/London'), '07:00', 'summer time');
+  assert.equal(first('2026-11-05T06:00:00Z', 'Europe/London'), '07:00', 'winter');
+  // The candidate's own time does: 11:30 IST becomes 12:30 IST.
+  assert.equal(first('2026-10-01T06:00:00Z', 'Asia/Kolkata'), '11:30', 'summer time');
+  assert.equal(first('2026-11-05T06:00:00Z', 'Asia/Kolkata'), '12:30', 'winter');
 });
 
 test('the other roles are offered exactly what the default rule says', () => {
@@ -117,8 +125,8 @@ test('the other roles are offered exactly what the default rule says', () => {
 });
 
 test('booking is checked against the same rule the slots came from', () => {
-  const inside = new Date('2026-10-07T06:00:00Z'); // 11:30 IST
-  const outside = new Date('2026-10-07T09:00:00Z'); // 14:30 IST, past 13:30
+  const inside = new Date('2026-10-07T06:00:00Z'); // 07:00 UK
+  const outside = new Date('2026-10-07T09:00:00Z'); // 10:00 UK, past 09:00
   const now = new Date('2026-10-01T06:00:00Z');
   assert.equal(isSlotBookable({ startsAt: inside.toISOString(), rule: INDIA_RULE, taken: [], now }).ok, true);
   assert.equal(isSlotBookable({ startsAt: outside.toISOString(), rule: INDIA_RULE, taken: [], now }).ok, false);
@@ -143,10 +151,9 @@ test('recruit_018 is additive, and reversible', () => {
   // One default per interviewer, one row per role, enforced by the database.
   assert.match(up, /idx_recruit_rules_one_default[\s\S]*WHERE role IS NULL/);
   assert.match(up, /idx_recruit_rules_one_per_role[\s\S]*WHERE role IS NOT NULL/);
-  // The India rows: their own zone, and no UK lunch inside a two-hour day.
-  assert.match(up, /'Asia\/Kolkata'/);
-  assert.match(up, /'11:30', '13:30'/);
-  assert.match(up, /'\[\]'::jsonb/);
+  // The India rows: UK time like the default, 07:00-09:00.
+  assert.match(up, /r\.timezone, r\.weekdays, '07:00', '09:00'/);
+  assert.doesNotMatch(up, /Asia\/Kolkata/, 'hours are on the UK clock, like the rest of Settings');
   assert.match(up, /india_intern[\s\S]*india_aidev/);
   assert.doesNotMatch(up, /sa_paralegal|sa_sales/, 'South Africa keeps the default');
   // Re-runnable.

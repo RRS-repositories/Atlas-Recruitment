@@ -34,24 +34,26 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_recruit_rules_one_per_role
   ON recruit_availability_rules (interviewer_id, role)
   WHERE role IS NOT NULL;
 
--- ── The India roles: 11:30-13:30 India time ─────────────────────────────────
+-- ── The India roles: 07:00-09:00 ────────────────────────────────────────────
 --
--- In the role's OWN timezone, not the default's. 11:30 IST written as a UK
--- clock time would move twice a year, and be an hour wrong for half of it --
--- the same trap the timezone tests pin (server/lib/timezone.test.js).
+-- In UK TIME, like every other hour on the Settings screen (decided 30 Sep).
+-- That is 11:30-13:30 in India while the UK is on summer time, and
+-- 12:30-14:30 once the clocks go back: the UK clock is the fixed one, and the
+-- candidate's own time moves with it. Storing India time instead would fix
+-- their clock and move ours, which is not how this screen reads.
 --
 -- Everything else -- slot length, buffer, notice, how far ahead, working days
--- -- is copied from the default rule, so those stay one decision. The lunch
--- break is not: it is a UK lunch on a UK clock, and inside a 11:30-13:30 IST
--- day it would be an hour of a two-hour window.
+-- and the lunch break -- is copied from the default rule, so those stay one
+-- decision. The default lunch sits outside this window and so does nothing,
+-- but it travels with the row in case the window is widened later.
 --
 -- Skipped for any role that already has a row, so re-running changes nothing.
 INSERT INTO recruit_availability_rules (
   interviewer_id, role, timezone, weekdays, day_start, day_end,
   slot_minutes, buffer_minutes, min_notice_hours, max_days_ahead, blocks
 )
-SELECT r.interviewer_id, role_key, 'Asia/Kolkata', r.weekdays, '11:30', '13:30',
-       r.slot_minutes, r.buffer_minutes, r.min_notice_hours, r.max_days_ahead, '[]'::jsonb
+SELECT r.interviewer_id, role_key, r.timezone, r.weekdays, '07:00', '09:00',
+       r.slot_minutes, r.buffer_minutes, r.min_notice_hours, r.max_days_ahead, r.blocks
   FROM recruit_availability_rules r
  CROSS JOIN (VALUES ('india_intern'::recruit_role), ('india_aidev'::recruit_role)) AS v(role_key)
  WHERE r.role IS NULL
