@@ -13,11 +13,14 @@
 -- rule, and this only decides which rule it is handed.
 
 -- ── The role on a rule ──────────────────────────────────────────────────────
+--
+-- No COMMENT ON COLUMN here, deliberately: the CRM's migration runner reads
+-- `ON <word>` as naming an object, and `COLUMN` is not one of the keywords it
+-- looks past -- so a comment on a recruit_ column reads to it as recruitment
+-- reaching outside its own tables, and it refuses the file. What the column
+-- means is said above instead.
 ALTER TABLE recruit_availability_rules
   ADD COLUMN IF NOT EXISTS role recruit_role;
-
-COMMENT ON COLUMN recruit_availability_rules.role IS
-  'The role these hours are for. NULL is the default, used by every role without its own row.';
 
 -- One rule per interviewer becomes one DEFAULT rule per interviewer, plus at
 -- most one per role. Two partial indexes rather than one over (interviewer_id,
