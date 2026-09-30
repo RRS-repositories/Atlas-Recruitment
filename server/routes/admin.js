@@ -507,7 +507,11 @@ export function createAdminRouter() {
                 r.timezone, r.weekdays, r.day_start, r.day_end, r.slot_minutes,
                 r.buffer_minutes, r.min_notice_hours, r.max_days_ahead, r.blocks
            FROM recruit_interviewers i
-           LEFT JOIN recruit_availability_rules r ON r.interviewer_id = i.id
+           -- The default rule only: since recruit_018 an interviewer can also
+           -- have a rule per role, and joining those would return the same
+           -- interviewer several times over.
+           LEFT JOIN recruit_availability_rules r
+                  ON r.interviewer_id = i.id AND to_jsonb(r) ->> 'role' IS NULL
           WHERE i.active
           ORDER BY i.id`,
       );
@@ -609,7 +613,10 @@ export function createAdminRouter() {
         `UPDATE recruit_availability_rules
             SET day_start = $2, day_end = $3, weekdays = $4, slot_minutes = $5,
                 min_notice_hours = $6, max_days_ahead = $7, blocks = $8::jsonb
-          WHERE interviewer_id = $1
+          -- The default rule only. A role with hours of its own (recruit_018)
+          -- keeps them: this screen sets the hours every other role follows,
+          -- and must not quietly overwrite the India ones.
+          WHERE interviewer_id = $1 AND to_jsonb(recruit_availability_rules) ->> 'role' IS NULL
           RETURNING *`,
         [
           interviewerId,

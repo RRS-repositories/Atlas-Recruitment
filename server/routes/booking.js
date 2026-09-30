@@ -6,6 +6,7 @@ import { buildAvailability, isSlotBookable } from '../lib/availability.js';
 import { formatDayIn, formatTimeIn } from '../lib/zonedTime.js';
 import { notifyBooked, notifyCancelled } from '../lib/notify.js';
 import { blackoutsFor } from '../lib/blackouts.js';
+import { RULES_FOR_INTERVIEWER, pickRule } from '../lib/roleRules.js';
 import { isEnabled, requireFlag } from '../lib/flags.js';
 import { cancelGuard } from '../lib/rebookPolicy.js';
 import { attachMeetLink, moveMeetLink, cancelMeetLink } from '../lib/meetLink.js';
@@ -43,7 +44,13 @@ const FIND_BY_TOKEN = `
    WHERE i.booking_token_hash = $1
 `;
 
-const RULE_FOR = `SELECT * FROM recruit_availability_rules WHERE interviewer_id = $1`;
+/*
+ * Every rule this interviewer has; `pickRule` takes the one for the
+ * candidate's role, or the default when that role has none (recruit_018).
+ * A database without that migration has one row, no role, and this resolves
+ * to exactly what it always did.
+ */
+const RULE_FOR = RULES_FOR_INTERVIEWER;
 
 const TAKEN_FOR = `
   SELECT starts_at AS "startsAt", ends_at AS "endsAt"
@@ -135,10 +142,13 @@ export function createBookingRouter() {
       pool.query(TAKEN_FOR, [row.interviewer_id, excludeSelf ? row.id : null]),
       blackoutsFor(row.interviewer_id),
     ]);
+    // `taken` is deliberately NOT narrowed by role: the interviewer is one
+    // person whatever the candidate applied for, and a slot another role has
+    // taken is gone.
     // One list of periods to avoid. A slot the interviewer has blacked out and
     // a slot another candidate has taken are the same thing to the engine, and
     // calendar busy periods will join this list unchanged.
-    return { rule: ruleRows[0], taken: [...taken, ...blackouts] };
+    return { rule: pickRule(ruleRows, row.role), taken: [...taken, ...blackouts] };
   }
 
   // ── The booking page ──────────────────────────────────────────────────────
@@ -212,7 +222,7 @@ export function createBookingRouter() {
 
       const { rows: ruleRows } = await client.query(RULE_FOR, [row.interviewer_id]);
       const { rows: taken } = await client.query(TAKEN_FOR, [row.interviewer_id, row.id]);
-      const rule = ruleRows[0];
+      const rule = pickRule(ruleRows, row.role);
       if (!rule) throw new Error('no availability rule');
 
       // Re-checked here as well as when the list was drawn: a blackout added
